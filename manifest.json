@@ -1,0 +1,16 @@
+{
+  "name": "Afinador Profissional",
+  "short_name": "Afinador",
+  "description": "Um afinador acessível e prático.",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3203/3203732.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
