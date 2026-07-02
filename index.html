@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/3203/3203732.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ffffff">
+    <title>Afinador Profissional</title>
+</head>
+<body>
+    <h1>Afinador Acessível</h1>
+    <button onclick="iniciar()">Ativar Afinador</button>
+    <button onclick="parar()">Parar Afinador</button>
+    <p id="status">Aguardando...</p>
+    
+    <h3>Notas de Referencia:</h3>
+    <button onclick="tocarNota(82.41, 'Mi grave')">Mi grave</button>
+    <button onclick="tocarNota(110.00, 'La')">La</button>
+    <button onclick="tocarNota(146.83, 'Re')">Re</button>
+    <button onclick="tocarNota(196.00, 'Sol')">Sol</button>
+    <button onclick="tocarNota(246.94, 'Si')">Si</button>
+    <button onclick="tocarNota(329.63, 'Mi agudo')">Mi agudo</button>
+    <br><br>
+    <button onclick="pararReferencia()" style="background-color: #ffcccc;">Parar Referencia</button>
+
+    <script>
+        let audioCtx, stream, intervalo, oscAtual = null, contagem = 0, ultimaNota = "", historicoDiferencas = [];
+
+        function tocarNota(freq, nome) {
+            pararReferencia(); 
+            let ctx = new (window.AudioContext || window.webkitAudioContext)();
+            let gainNode = ctx.createGain();
+            gainNode.gain.setValueAtTime(1.0, ctx.currentTime); 
+            oscAtual = ctx.createOscillator();
+            oscAtual.type = 'triangle'; 
+            oscAtual.frequency.setValueAtTime(freq, ctx.currentTime);
+            oscAtual.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            oscAtual.start();
+            falar("Ouvindo " + nome);
+        }
+
+        function pararReferencia() { if (oscAtual) { oscAtual.stop(); oscAtual = null; } }
+
+        async function iniciar() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 16384; 
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = "lowpass"; filter.frequency.value = 600;
+            audioCtx.createMediaStreamSource(stream).connect(filter);
+            filter.connect(analyser);
+            const buffer = new Float32Array(2048);
+            intervalo = setInterval(() => {
+                analyser.getFloatTimeDomainData(buffer);
+                let freq = calcularFrequencia(buffer, audioCtx.sampleRate);
+                if (freq) verificarNota(freq);
+            }, 300);
+            falar("Afinador ligado");
+        }
+
+        function parar() { if (stream) { stream.getTracks().forEach(t => t.stop()); clearInterval(intervalo); falar("Afinador desligado"); } }
+
+        function calcularFrequencia(buffer, sampleRate) {
+            let yinBuffer = new Float32Array(buffer.length / 2);
+            for (let t = 0; t < yinBuffer.length; t++) {
+                yinBuffer[t] = 0;
+                for (let i = 0; i < yinBuffer.length; i++) { let delta = buffer[i] - buffer[i + t]; yinBuffer[t] += delta * delta; }
+            }
+            let runningSum = 0; yinBuffer[0] = 1;
+            for (let t = 1; t < yinBuffer.length; t++) { runningSum += yinBuffer[t]; yinBuffer[t] *= t / runningSum; }
+            for (let tau = 2; tau < yinBuffer.length; tau++) {
+                if (yinBuffer[tau] < 0.1) {
+                    while (tau + 1 < yinBuffer.length && yinBuffer[tau + 1] < yinBuffer[tau]) tau++;
+                    return sampleRate / tau;
+                }
+            }
+            return null;
+        }
+
+        function verificarNota(hz) {
+            const cordas = [{ nome: "Mi grave", freq: 82.41 }, { nome: "La", freq: 110.00 }, { nome: "Re", freq: 146.83 }, { nome: "Sol", freq: 196.00 }, { nome: "Si", freq: 246.94 }, { nome: "Mi agudo", freq: 329.63 }];
+            let melhor = cordas.reduce((prev, curr) => Math.abs(curr.freq - hz) < Math.abs(prev.freq - hz) ? curr : prev);
+            if (Math.abs(hz - melhor.freq) < 10) {
+                let dif = hz - melhor.freq;
+                historicoDiferencas.push(dif);
+                if (historicoDiferencas.length > 5) historicoDiferencas.shift();
+                if (historicoDiferencas.length === 5) {
+                    let mediaDif = historicoDiferencas.reduce((a, b) => a + b) / 5;
+                    if (melhor.nome === ultimaNota) contagem++; else { contagem = 1; ultimaNota = melhor.nome; }
+                    if (contagem >= 3) {
+                        let msg = melhor.nome + " ";
+                        if (Math.abs(mediaDif) <= 1.0) msg += "afinada.";
+                        else if (Math.abs(mediaDif) <= 3.0) msg += (mediaDif < 0) ? "quase lá, aperte um pouquinho." : "quase lá, afrouxe um pouquinho.";
+                        else msg += (mediaDif < 0) ? "aperte mais." : "afrouxe mais.";
+                        falar(msg);
+                        contagem = 0; historicoDiferencas = []; 
+                    }
+                }
+            }
+        }
+
+        function falar(texto) { window.speechSynthesis.cancel(); let msg = new SpeechSynthesisUtterance(texto); msg.lang = 'pt-BR'; window.speechSynthesis.speak(msg); }
+        
+        // Registro do Service Worker para funcionar offline
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+</body>
+</html>
+
